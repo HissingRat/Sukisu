@@ -10,11 +10,9 @@ state-based and newer policy-based SELinux APIs and newer static-call LSM hookup
 See [the branch-by-branch parity checklist](SELINUX_HIDE_PARITY.md) for all query,
 status retry, late-load, architecture, fallback and lifecycle branches, and for
 the explicit safety/control-state differences. The expanded source review,
-524 differential cases and twelve build rows passed; see the
-[validation report](../docs/SELINUX_HIDE_PARITY_VALIDATION.md) for build limits and
-the completed device regression, its coverage limits, and verified restoration. The earlier
-[PHB110 device test](../docs/SELINUX_HIDE_DEVICE_TEST.md) belongs to the first
-5.15-only revision and does not validate this later expansion.
+524 differential cases and twelve build rows passed. The earlier PHB110 device
+test belongs to the first 5.15-only revision and does not validate this later
+expansion. See the parity checklist for build coverage and its limits.
 
 The feature uses an independently copied policy database and SID table. For
 application-range UIDs it hides policy additions from context/access queries and

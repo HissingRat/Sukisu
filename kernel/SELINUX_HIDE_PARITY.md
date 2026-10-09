@@ -8,11 +8,8 @@ The checklist concerns observable hidden-query behavior, including fallback and
 initialization branches. It does not claim that unrelated KernelSU features or
 the whole upstream kernel module were transplanted. Independent source review,
 524 actual-source differential cases, and all twelve ARM64/x86_64 kernel build
-rows have passed on final source inventory `e4865a515e28`. See the
-[expanded validation report](../docs/SELINUX_HIDE_PARITY_VALIDATION.md), which
-records the completed device regression, its coverage limits, and verified restoration. The earlier
-[PHB110 test report](../docs/SELINUX_HIDE_DEVICE_TEST.md) describes the previous
-5.15-only revision, not these expanded changes.
+rows have passed on final source inventory `e4865a515e28`. The earlier PHB110
+test covered the previous 5.15-only revision, not these expanded changes.
 
 ## Query and lifecycle coverage
 
@@ -59,7 +56,7 @@ records the completed device regression, its coverage limits, and verified resto
 - Verified build coverage: ARM64 and x86_64 5.10, 5.15, 6.1, 6.6, 6.12 and 6.18.
   ARM64 additionally passed matching-vmlinux symbol checks. x86_64 has compile/link
   coverage without a matching vmlinux, so it does not establish module-load ABI
-  compatibility. Detailed manifests and limits are in the validation report.
+  compatibility.
 
 Reference files are pinned locally under `cache/KernelSU/kernel/feature/`,
 `hook/`, `infra/`, and `selinux/`. The query implementations keep upstream helper
