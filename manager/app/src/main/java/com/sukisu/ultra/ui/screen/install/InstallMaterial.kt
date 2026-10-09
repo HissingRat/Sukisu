@@ -1,5 +1,7 @@
 package com.sukisu.ultra.ui.screen.install
 
+import com.sukisu.ultra.BuildConfig
+
 import android.app.Activity
 import android.content.Intent
 import android.widget.Toast
@@ -228,6 +230,13 @@ fun InstallScreenMaterial(preselectedKernelUri: String? = null) {
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .verticalScroll(rememberScrollState())
         ) {
+            if (BuildConfig.INSTALLER_4K_ONLY) {
+                Text(
+                    text = stringResource(R.string.install_4k_only_notice),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
             SelectInstallMethod(
                 onSelected = { method ->
                     if (method is InstallMethod.HorizonKernel && method.uri != null) {

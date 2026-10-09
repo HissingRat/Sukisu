@@ -1,5 +1,8 @@
 # SELinux-hide image installer
 
+The later [stock seven-KMI installer](MULTI_KMI_INSTALLER.md) extends this
+preserved single-KMI APK with the original v4.1.2 ARM64 resource list.
+
 This phone-targeted development APK packages the tested ARM64 `android13-5.15`
 SELinux parity module. Home → Install → Select a file → choose an original
 `init_boot.img` → confirm `android13-5.15` produces an image in Downloads.
@@ -106,7 +109,8 @@ API 26 and `-no-pie`; the output is static ARM64 ELF. Other hosts may set
   51 existing warnings; none in the changed patcher/build script. Strict baseline
   Clippy limitations are documented in the parity validation notes.
 
-Logs are in `cache/standalone-patch`: `final-title-build.log`, `ksud-release-final.log`,
+Raw test logs were removed during the requested cleanup. The validation-time
+logs were in `cache/standalone-patch`: `final-title-build.log`, `ksud-release-final.log`,
 `installer-regression.log`, `manager-model-export-regression.log`, and `clippy.log`.
 Installed-APK extraction and actual stock-image patch/export are independently
 validated by the sole device operator; their detailed report belongs alongside

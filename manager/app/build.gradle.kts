@@ -125,6 +125,8 @@ android {
             providers.gradleProperty("SUKISU_APP_LABEL").orNull ?: "@string/app_name"
         buildConfigField("boolean", "SKIP_DAEMON_INSTALL",
             (providers.gradleProperty("SUKISU_SKIP_DAEMON_INSTALL").orNull?.toBooleanStrict() ?: false).toString())
+        buildConfigField("boolean", "INSTALLER_4K_ONLY",
+            (providers.gradleProperty("SUKISU_INSTALLER_4K_ONLY").orNull?.toBooleanStrict() ?: false).toString())
         minSdk = androidMinSdkVersion
         targetSdk = androidTargetSdkVersion
         versionCode = managerVersionCode

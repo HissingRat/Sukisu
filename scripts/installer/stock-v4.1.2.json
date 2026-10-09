@@ -1,0 +1,14 @@
+{
+  "base_commit": "ede8a21fb215eccca099db26214308e7f8685a47",
+  "workflow": ".github/workflows/build-lkm.yml",
+  "release_assets": "https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases/expanded_assets/v4.1.2",
+  "kmis": [
+    "android12-5.10",
+    "android13-5.10",
+    "android13-5.15",
+    "android14-5.15",
+    "android14-6.1",
+    "android15-6.6",
+    "android16-6.12"
+  ]
+}

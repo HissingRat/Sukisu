@@ -1,5 +1,9 @@
 # Full SELinux-hide parity validation
 
+Raw test logs, transcripts and UI captures referenced below were removed during
+the requested cleanup. Local artifacts, structured provenance and rollback
+backups remain preserved; raw evidence paths describe the validation-time state.
+
 This report concerns the expanded implementation against pinned KernelSU
 `df03912f70d92ff2aa9762ef82d607033d37e1da`, on SukiSU v4.1.2 baseline
 `ede8a21fb215eccca099db26214308e7f8685a47`. See

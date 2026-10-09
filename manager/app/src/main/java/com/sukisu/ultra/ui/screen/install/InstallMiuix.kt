@@ -1,5 +1,8 @@
 package com.sukisu.ultra.ui.screen.install
 
+import com.sukisu.ultra.BuildConfig
+import top.yukonga.miuix.kmp.basic.Text
+
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
@@ -274,6 +277,13 @@ fun InstallScreenMiuix(preselectedKernelUri: String? = null) {
             overscrollEffect = null,
         ) {
             item {
+                if (BuildConfig.INSTALLER_4K_ONLY) {
+                    Text(
+                        text = stringResource(R.string.install_4k_only_notice),
+                        modifier = Modifier.padding(bottom = 12.dp),
+                        color = colorScheme.error
+                    )
+                }
                 Card(
                     modifier = Modifier
                         .fillMaxWidth(),

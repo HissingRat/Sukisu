@@ -535,4 +535,5 @@
     <string name="settings_selinux_hide_config_failed">Failed to read or save SELinux hide configuration. Check the current state and try again.</string>
     <string name="settings_selinux_hide_clear_request">Disable and clear request</string>
     <string name="settings_selinux_hide_set_failed">SELinux hide error: %1$s. Status hiding may remain active; use Disable and clear request to reset it.</string>
+    <string name="install_4k_only_notice">This installer supports kernels with 4 KiB pages only. Do not use its patched images with a 16 KiB page kernel.</string>
 </resources>

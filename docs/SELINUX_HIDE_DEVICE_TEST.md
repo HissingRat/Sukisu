@@ -1,5 +1,9 @@
 # PHB110 device test, 2026-10-09
 
+Raw test logs, transcripts and UI captures referenced below were removed during
+the requested cleanup. Local artifacts, structured provenance and rollback
+backups remain preserved; raw evidence paths describe the validation-time state.
+
 **Completed: tested the feature, then restored the original phone configuration.**
 The official Manager remains installed with its data, the original slot-A image
 is restored, slot B is unchanged, and temporary test apps/files were removed.

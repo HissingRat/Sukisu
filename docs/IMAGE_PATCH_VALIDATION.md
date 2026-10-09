@@ -1,5 +1,9 @@
 # Selected-image patch/export validation
 
+Raw test logs, transcripts and UI captures referenced below were removed during
+the requested cleanup. Local artifacts, structured provenance and rollback
+backups remain preserved; raw evidence paths describe the validation-time state.
+
 Completed on the PHB110 Android 15 device without flashing, rebooting, granting
 root to the test app, or replacing the official Manager. Packaging and repeatable
 build commands are in [SELINUX_HIDE_INSTALLER.md](SELINUX_HIDE_INSTALLER.md).
