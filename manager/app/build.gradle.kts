@@ -94,6 +94,8 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // ksud is an executable already stripped by Cargo; retain exact build bytes.
+            keepDebugSymbols += "**/libksud.so"
         }
     }
 
@@ -117,6 +119,12 @@ android {
     buildToolsVersion = androidBuildToolsVersion
 
     defaultConfig {
+        // Optional side-by-side development package; namespace/JNI classes stay unchanged.
+        applicationId = providers.gradleProperty("SUKISU_APPLICATION_ID").orNull ?: "com.sukisu.ultra"
+        manifestPlaceholders["sukisuAppLabel"] =
+            providers.gradleProperty("SUKISU_APP_LABEL").orNull ?: "@string/app_name"
+        buildConfigField("boolean", "SKIP_DAEMON_INSTALL",
+            (providers.gradleProperty("SUKISU_SKIP_DAEMON_INSTALL").orNull?.toBooleanStrict() ?: false).toString())
         minSdk = androidMinSdkVersion
         targetSdk = androidTargetSdkVersion
         versionCode = managerVersionCode
@@ -131,7 +139,11 @@ android {
         }
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            // Installer builds may deliberately package only verified architectures.
+            abiFilters += providers.gradleProperty("SUKISU_ABIS").orNull
+                ?.split(',')?.also { abis ->
+                    require(abis.isNotEmpty() && abis.all { it in setOf("arm64-v8a", "x86_64") })
+                } ?: listOf("arm64-v8a", "x86_64")
         }
     }
 

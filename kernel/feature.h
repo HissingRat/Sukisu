@@ -7,6 +7,9 @@ enum ksu_feature_id {
     KSU_FEATURE_SU_COMPAT = 0,
     KSU_FEATURE_KERNEL_UMOUNT = 1,
 
+    /* 2 and 3 are reserved for upstream feature IDs. */
+    KSU_FEATURE_SELINUX_HIDE = 4,
+
     KSU_FEATURE_MAX
 };
 

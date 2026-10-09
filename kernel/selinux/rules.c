@@ -5,6 +5,10 @@
 #include "../klog.h" // IWYU pragma: keep
 #include "selinux.h"
 #include "sepolicy.h"
+#include "../selinux_hide.h"
+#include "../ksu.h"
+#include <linux/lockdep.h>
+#include <linux/err.h>
 #include "ss/services.h"
 #include "linux/lsm_audit.h" // IWYU pragma: keep
 #include "xfrm.h"
@@ -22,10 +26,12 @@ static struct policydb *get_policydb(void)
 }
 
 static DEFINE_MUTEX(ksu_rules);
+static void reset_avc_cache(void);
 
 void apply_kernelsu_rules()
 {
     struct policydb *db;
+    struct selinux_policy *old_pol = NULL, *pol = NULL;
 
     if (!getenforce()) {
         pr_info("SELinux permissive or disabled, apply rules!\n");
@@ -33,8 +39,30 @@ void apply_kernelsu_rules()
 
     mutex_lock(&ksu_rules);
 
-    db = get_policydb();
+    /* Capture once, before any KernelSU policy mutation. */
+    ksu_selinux_hide_backup_policy();
+    if (ksu_late_loaded) {
+        /* Android tasks already traverse this policy: build a private replacement
+         * and publish it only after every initial rule has been applied. */
+        mutex_lock(&selinux_state.policy_mutex);
+        old_pol = rcu_dereference_protected(selinux_state.policy,
+                                           lockdep_is_held(&selinux_state.policy_mutex));
+        if (!old_pol)
+            goto out_late;
+        pol = ksu_dup_sepolicy(old_pol);
+        if (IS_ERR(pol)) {
+            pr_err("late-load: failed to clone live policy: %ld\n", PTR_ERR(pol));
+            goto out_late;
+        }
+        db = &pol->policydb;
+    } else {
+        db = get_policydb();
+    }
 
+    /* Late-loaded stock policies need not already contain SukiSU's su domain.
+     * Create it after capture so this addition is hidden, like upstream's domain. */
+    if (!ksu_exists(db, KERNEL_SU_DOMAIN))
+        ksu_type(db, KERNEL_SU_DOMAIN, "domain");
     ksu_permissive(db, KERNEL_SU_DOMAIN);
     ksu_typeattribute(db, KERNEL_SU_DOMAIN, "mlstrustedsubject");
     ksu_typeattribute(db, KERNEL_SU_DOMAIN, "netdomain");
@@ -97,6 +125,15 @@ void apply_kernelsu_rules()
     // https://android-review.googlesource.com/c/platform/system/logging/+/3725346
     ksu_dontaudit(db, "untrusted_app", KERNEL_SU_DOMAIN, "dir", "getattr");
 
+    if (ksu_late_loaded) {
+        rcu_assign_pointer(selinux_state.policy, pol);
+        synchronize_rcu();
+        ksu_destroy_sepolicy(old_pol);
+        reset_avc_cache();
+    }
+out_late:
+    if (ksu_late_loaded)
+        mutex_unlock(&selinux_state.policy_mutex);
     mutex_unlock(&ksu_rules);
 }
 
@@ -184,6 +221,8 @@ int handle_sepolicy(unsigned long arg3, void __user *arg4)
 
     mutex_lock(&ksu_rules);
 
+    /* Capture once, before any KernelSU policy mutation. */
+    ksu_selinux_hide_backup_policy();
     db = get_policydb();
 
     int ret = -EINVAL;

@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.Cursor
 import android.net.Uri
 import android.os.Environment
+import android.os.Build
 import android.os.Parcelable
 import android.os.SystemClock
 import android.provider.OpenableColumns
@@ -123,7 +124,23 @@ suspend fun getFeaturePersistValue(feature: String): Long? = withContext(Dispatc
     valueLine.substringAfter("Value:").trim().toLongOrNull()
 }
 
+// SELinux hide must distinguish an unset preference from a failed config read.
+suspend fun getFeaturePersistValueStrict(feature: String): Long? = withContext(Dispatchers.IO) {
+    val result = getRootShell().newJob()
+        .add("${getKsuDaemonPath()} feature get --config $feature")
+        .to(ArrayList<String>(), null).exec()
+    check(result.isSuccess) { "Failed to read saved feature state" }
+    val valueLine = result.out.firstOrNull { it.trim().startsWith("Value:") }
+    if (valueLine == null) {
+        check(result.out.any { it.trim() == "Not set in config" }) { "Invalid feature config response" }
+        return@withContext null
+    }
+    checkNotNull(valueLine.substringAfter("Value:").trim().toLongOrNull())
+}
+
 fun install() {
+    // Test packages run their embedded daemon directly and preserve the installed daemon/assets.
+    if (BuildConfig.SKIP_DAEMON_INSTALL) return
     val start = SystemClock.elapsedRealtime()
     val magiskboot = File(ksuApp.applicationInfo.nativeLibraryDir, "libmagiskboot.so").absolutePath
     val result = execKsud("install --magiskboot $magiskboot", true)
@@ -271,6 +288,8 @@ sealed class LkmSelection : Parcelable {
     data object KmiNone : LkmSelection()
 }
 
+private fun shellArgument(value: String): String = "'" + value.replace("'", "'\"'\"'") + "'"
+
 fun installBoot(
     bootUri: Uri?,
     lkm: LkmSelection,
@@ -279,77 +298,70 @@ fun installBoot(
     onStdout: (String) -> Unit,
     onStderr: (String) -> Unit,
 ): FlashResult {
-    val resolver = ksuApp.contentResolver
-
-    val bootFile = bootUri?.let { uri ->
-        with(resolver.openInputStream(uri)) {
-            val bootFile = File(ksuApp.cacheDir, "boot.img")
-            bootFile.outputStream().use { output ->
-                this?.copyTo(output)
+    val workDir = try {
+        kotlin.io.path.createTempDirectory(ksuApp.cacheDir.toPath(), "boot-patch-").toFile()
+    } catch (e: Exception) {
+        val message = "Cannot create image patch directory: ${e.message}"
+        onStderr(message)
+        return FlashResult(1, message, false)
+    }
+    try {
+        val resolver = ksuApp.contentResolver
+        val bootFile = bootUri?.let { uri ->
+            File(workDir, "boot.img").also { file ->
+                val input = resolver.openInputStream(uri) ?: error("Cannot open selected boot image")
+                input.use { stream -> file.outputStream().use { stream.copyTo(it) } }
             }
-
-            bootFile
         }
-    }
+        val magiskboot = File(ksuApp.applicationInfo.nativeLibraryDir, "libmagiskboot.so")
+        var cmd = "boot-patch --magiskboot ${shellArgument(magiskboot.absolutePath)}"
+        cmd += if (bootFile == null) " -f" else " -b ${shellArgument(bootFile.absolutePath)}"
+        if (ota) cmd += " -u"
 
-    val magiskboot = File(ksuApp.applicationInfo.nativeLibraryDir, "libmagiskboot.so")
-    var cmd = "boot-patch --magiskboot ${magiskboot.absolutePath}"
-
-    cmd += if (bootFile == null) {
-        // no boot.img, use -f to force install
-        " -f"
-    } else {
-        " -b ${bootFile.absolutePath}"
-    }
-
-    if (ota) {
-        cmd += " -u"
-    }
-
-    var lkmFile: File? = null
-    when (lkm) {
-        is LkmSelection.LkmUri -> {
-            lkmFile = with(resolver.openInputStream(lkm.uri)) {
-                val file = File(ksuApp.cacheDir, "kernelsu-tmp-lkm.ko")
-                file.outputStream().use { output ->
-                    this?.copyTo(output)
-                }
-
-                file
+        when (lkm) {
+            is LkmSelection.LkmUri -> {
+                val file = File(workDir, "kernelsu-tmp-lkm.ko")
+                val input = resolver.openInputStream(lkm.uri) ?: error("Cannot open selected LKM")
+                input.use { stream -> file.outputStream().use { stream.copyTo(it) } }
+                cmd += " -m ${shellArgument(file.absolutePath)}"
             }
-            cmd += " -m ${lkmFile.absolutePath}"
+            is LkmSelection.KmiString -> cmd += " --kmi ${shellArgument(lkm.value)}"
+            LkmSelection.KmiNone -> Unit
         }
 
-        is LkmSelection.KmiString -> {
-            cmd += " --kmi ${lkm.value}"
+        // Selected images are patched privately, then published through Android's
+        // Downloads API. This also works when the shell has no root privileges.
+        val outputName = "kernelsu_patched_${System.currentTimeMillis()}.img"
+        val privateExport = bootFile != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        // Older Android releases retain the original shell export path; it needs
+        // an authorized root shell because this app has no broad storage grant.
+        val outputDir = if (privateExport) workDir else
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        cmd += " -o ${shellArgument(outputDir.absolutePath)}"
+        if (bootFile != null) cmd += " --out-name ${shellArgument(outputName)}"
+        partition?.let { cmd += " --partition ${shellArgument(it)}" }
+
+        val result = flashWithIO(
+            "TMPDIR=${shellArgument(workDir.absolutePath)} ${shellArgument(getKsuDaemonPath())} $cmd",
+            onStdout, onStderr
+        )
+        Log.i("KernelSU", "install boot result: ${result.isSuccess}")
+        if (result.isSuccess && bootFile != null) {
+            val destination = if (privateExport) exportPatchedImage(File(workDir, outputName)) else
+                File(outputDir, outputName).absolutePath
+            onStdout("- Exported image: $destination")
         }
-
-        LkmSelection.KmiNone -> {
-            // do nothing
-        }
+        val showReboot = bootUri == null && result.isSuccess
+        if (showReboot) install()
+        return FlashResult(result, showReboot)
+    } catch (e: Exception) {
+        val message = "Boot image patch/export failed: ${e.message}"
+        Log.e(TAG, message, e)
+        onStderr(message)
+        return FlashResult(1, message, false)
+    } finally {
+        workDir.deleteRecursively()
     }
-
-    // output dir
-    val downloadsDir =
-        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-    cmd += " -o $downloadsDir"
-
-    partition?.let { part ->
-        cmd += " --partition $part"
-    }
-
-    val result = flashWithIO("${getKsuDaemonPath()} $cmd", onStdout, onStderr)
-    Log.i("KernelSU", "install boot result: ${result.isSuccess}")
-
-    bootFile?.delete()
-    lkmFile?.delete()
-
-    // if boot uri is empty, it is direct install, when success, we should show reboot button
-    val showReboot = bootUri == null && result.isSuccess // we create a temporary val here, to avoid calc showReboot double
-    if (showReboot) { // because we decide do not update ksud when startActivity
-        install() // install ksud here
-    }
-    return FlashResult(result, showReboot)
 }
 
 fun reboot(reason: String = "") {

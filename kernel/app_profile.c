@@ -227,8 +227,8 @@ static void disable_seccomp_for_task(struct task_struct *tsk)
     // disable seccomp
 #if defined(CONFIG_GENERIC_ENTRY) &&                                           \
     LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
-    // clear_syscall_work is only for tsk, use clear_tsk_thread_flag for other tasks
-    clear_tsk_thread_flag(tsk, TIF_SECCOMP);
+    // Generic-entry kernels store this flag in syscall_work, including remote tasks.
+    clear_task_syscall_work(tsk, SECCOMP);
 #else
     clear_tsk_thread_flag(tsk, TIF_SECCOMP);
 #endif

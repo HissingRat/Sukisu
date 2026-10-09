@@ -137,6 +137,7 @@ fun FlashScreenMiuix(
         topBar = {
             TopBar(
                 flashing,
+                isImageExport = flashIt is FlashIt.FlashBoot && flashIt.boot != null,
                 onBack = dropUnlessResumed { navigator.pop() },
                 onSave = saveLog(logContent, context, scope),
                 hazeState = hazeState,
@@ -217,6 +218,7 @@ fun FlashScreenMiuix(
 @Composable
 private fun TopBar(
     status: FlashingStatus,
+    isImageExport: Boolean,
     onBack: () -> Unit = {},
     onSave: () -> Unit = {},
     hazeState: HazeState,
@@ -235,9 +237,9 @@ private fun TopBar(
         },
         title = stringResource(
             when (status) {
-                FlashingStatus.FLASHING -> R.string.flashing
-                FlashingStatus.SUCCESS -> R.string.flash_success
-                FlashingStatus.FAILED -> R.string.flash_failed
+                FlashingStatus.FLASHING -> if (isImageExport) R.string.image_patching else R.string.flashing
+                FlashingStatus.SUCCESS -> if (isImageExport) R.string.image_patch_success else R.string.flash_success
+                FlashingStatus.FAILED -> if (isImageExport) R.string.image_patch_failed else R.string.flash_failed
             }
         ),
         color = if (enableBlur) Color.Transparent else colorScheme.surface,

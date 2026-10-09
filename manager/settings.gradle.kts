@@ -19,3 +19,8 @@ dependencyResolutionManagement {
 
 rootProject.name = "KernelSU"
 include(":app")
+
+// Explicitly opt in to the unprivileged device-validation app.
+if (providers.gradleProperty("SUKISU_BUILD_SELINUX_PROBE").orNull == "true") {
+    include(":selinuxprobe")
+}

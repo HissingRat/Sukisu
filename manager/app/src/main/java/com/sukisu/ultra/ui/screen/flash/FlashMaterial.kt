@@ -72,6 +72,7 @@ fun FlashScreenMaterial(flashIt: FlashIt) {
     var flashing by rememberSaveable {
         mutableStateOf(FlashingStatus.FLASHING)
     }
+    val isImageExport = flashIt is FlashIt.FlashBoot && flashIt.boot != null
 
     FlashEffect(
         flashIt = flashIt,
@@ -106,9 +107,9 @@ fun FlashScreenMaterial(flashIt: FlashIt) {
                     Text(
                         stringResource(
                             when (flashing) {
-                                FlashingStatus.FLASHING -> R.string.flashing
-                                FlashingStatus.SUCCESS -> R.string.flash_success
-                                FlashingStatus.FAILED -> R.string.flash_failed
+                                FlashingStatus.FLASHING -> if (isImageExport) R.string.image_patching else R.string.flashing
+                                FlashingStatus.SUCCESS -> if (isImageExport) R.string.image_patch_success else R.string.flash_success
+                                FlashingStatus.FAILED -> if (isImageExport) R.string.image_patch_failed else R.string.flash_failed
                             }
                         )
                     )

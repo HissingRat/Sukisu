@@ -1,3 +1,4 @@
+#include <linux/random.h>
 #include <linux/string.h>
 #include <linux/uaccess.h>
 #include <linux/printk.h>

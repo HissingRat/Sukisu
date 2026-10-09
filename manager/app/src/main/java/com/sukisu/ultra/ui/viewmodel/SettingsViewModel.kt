@@ -1,5 +1,11 @@
 package com.sukisu.ultra.ui.viewmodel
 
+import android.system.OsConstants
+import android.widget.Toast
+import com.sukisu.ultra.R
+import com.sukisu.ultra.ksuApp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +78,7 @@ class SettingsViewModel(
                     isLkmMode = isLkmMode
                 )
             }
+            refreshSelinuxHide()
         }
     }
 
@@ -167,6 +174,81 @@ class SettingsViewModel(
             if (repo.setKernelUmountEnabled(enabled)) {
                 repo.execKsudFeatureSave()
                 _uiState.update { it.copy(isKernelUmountEnabled = enabled) }
+            }
+        }
+    }
+
+    private suspend fun refreshSelinuxHide() {
+        val active = repo.getSelinuxHideState()
+        if (active < 0) {
+            _uiState.update {
+                it.copy(
+                    selinuxHideStatus = if (active == -OsConstants.EOPNOTSUPP) "unsupported" else "error",
+                    selinuxHideError = if (active == -OsConstants.EOPNOTSUPP) null else
+                        ksuApp.getString(R.string.settings_selinux_hide_failed, active.toString())
+                )
+            }
+            return
+        }
+        try {
+            val status = repo.getSelinuxHideStatus()
+            val requested = repo.getSelinuxHidePersistValue()?.let { it != 0L }
+            _uiState.update {
+                it.copy(
+                    selinuxHideStatus = if (status == "supported" || status == "managed") status else "error",
+                    isSelinuxHideEnabled = active != 0,
+                    selinuxHideRequestedEnabled = requested,
+                    selinuxHideError = if (status == "supported" || status == "managed") null else
+                        ksuApp.getString(R.string.settings_selinux_hide_config_failed)
+                )
+            }
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            _uiState.update {
+                it.copy(
+                    selinuxHideStatus = "error",
+                    isSelinuxHideEnabled = active != 0,
+                    selinuxHideError = ksuApp.getString(R.string.settings_selinux_hide_config_failed)
+                )
+            }
+        }
+    }
+
+    fun setSelinuxHideEnabled(enabled: Boolean) {
+        val state = _uiState.value
+        if (state.selinuxHideBusy || state.selinuxHideStatus != "supported") return
+        _uiState.update { it.copy(selinuxHideBusy = true, selinuxHideError = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val result = repo.setSelinuxHideEnabled(enabled)
+                if (result != 0 && !(enabled && result == -OsConstants.EAGAIN)) {
+                    _uiState.update {
+                        it.copy(selinuxHideError = ksuApp.getString(
+                            R.string.settings_selinux_hide_set_failed, result.toString()))
+                    }
+                    return@launch
+                }
+                // Persist the requested value explicitly, never snapshot the inactive value on EAGAIN.
+                val saved = repo.persistSelinuxHide(enabled)
+                refreshSelinuxHide()
+                if (!saved) {
+                    _uiState.update {
+                        it.copy(selinuxHideError = ksuApp.getString(R.string.settings_selinux_hide_config_failed))
+                    }
+                } else if (_uiState.value.selinuxHidePendingReboot) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ksuApp, R.string.settings_selinux_hide_reboot_required,
+                            Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                refreshSelinuxHide()
+                _uiState.update {
+                    it.copy(selinuxHideError = ksuApp.getString(R.string.settings_selinux_hide_config_failed))
+                }
+            } finally {
+                _uiState.update { it.copy(selinuxHideBusy = false) }
             }
         }
     }

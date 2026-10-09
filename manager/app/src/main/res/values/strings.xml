@@ -137,6 +137,9 @@
     <string name="settings_restore_stock_image_message">Restore the stock factory image (if a backup exists), usually used before OTA; if you need to uninstall KernelSU, please use \"Uninstall permanently\".</string>
     <string name="flashing">Flashing</string>
     <string name="flash_success">Flash success</string>
+    <string name="image_patching">Patching and exporting image</string>
+    <string name="image_patch_success">Image patched and exported</string>
+    <string name="image_patch_failed">Image patch or export failed</string>
     <string name="flash_failed">Flash failed</string>
     <string name="selected_lkm">Selected LKM: %s</string>
     <string name="save_log">Save logs</string>
@@ -520,4 +523,16 @@
     <string name="icon_switch_title">Alternate icon</string>
     <string name="icon_switch_summary">Change the launcher icon to KernelSU\'s icon</string>
     <string name="refresh">Refresh</string>
+
+    <string name="settings_selinux_hide">Hide SELinux modification</string>
+    <string name="settings_selinux_hide_summary">Query hiding is not fully active.</string>
+    <string name="settings_selinux_hide_active">SELinux context and access query hiding is active.</string>
+    <string name="settings_selinux_hide_pending_enable">Enable request saved. Reboot to take full effect.</string>
+    <string name="settings_selinux_hide_pending_disable">Disable request saved. Reboot to complete deactivation.</string>
+    <string name="settings_selinux_hide_cancel_pending">Cancel pending SELinux change</string>
+    <string name="settings_selinux_hide_reboot_required">SELinux hide request saved. Reboot to take effect.</string>
+    <string name="settings_selinux_hide_failed">SELinux hide error: %1$s</string>
+    <string name="settings_selinux_hide_config_failed">Failed to read or save SELinux hide configuration. Check the current state and try again.</string>
+    <string name="settings_selinux_hide_clear_request">Disable and clear request</string>
+    <string name="settings_selinux_hide_set_failed">SELinux hide error: %1$s. Status hiding may remain active; use Disable and clear request to reset it.</string>
 </resources>

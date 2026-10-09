@@ -8,6 +8,7 @@ import com.sukisu.ultra.ui.UiMode
 import com.sukisu.ultra.ui.util.execKsud
 import com.sukisu.ultra.ui.util.getFeaturePersistValue
 import com.sukisu.ultra.ui.util.getFeatureStatus
+import com.sukisu.ultra.ui.util.getFeaturePersistValueStrict
 
 class SettingsRepositoryImpl : SettingsRepository {
 
@@ -80,6 +81,17 @@ class SettingsRepositoryImpl : SettingsRepository {
     override fun isKernelUmountEnabled(): Boolean = Natives.isKernelUmountEnabled()
 
     override fun setKernelUmountEnabled(enabled: Boolean): Boolean = Natives.setKernelUmountEnabled(enabled)
+
+    override suspend fun getSelinuxHideStatus(): String = getFeatureStatus("selinux_hide")
+
+    override suspend fun getSelinuxHidePersistValue(): Long? = getFeaturePersistValueStrict("selinux_hide")
+
+    override fun getSelinuxHideState(): Int = Natives.getSelinuxHideState()
+
+    override fun setSelinuxHideEnabled(enabled: Boolean): Int = Natives.setSelinuxHideEnabled(enabled)
+
+    override fun persistSelinuxHide(enabled: Boolean): Boolean =
+        execKsud("feature set --persist selinux_hide ${if (enabled) 1 else 0}", true)
 
     override fun isDefaultUmountModules(): Boolean = Natives.isDefaultUmountModules()
 

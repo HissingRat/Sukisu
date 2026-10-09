@@ -375,21 +375,21 @@ fn is_kernelsu_patched(magiskboot: &Path, workdir: &Path, cpio_path: &Path) -> R
 }
 
 fn find_magiskboot(magiskboot_path: Option<PathBuf>, workdir: &Path) -> Result<PathBuf> {
+    // The Manager supplies its bundled tool. Do not silently substitute a
+    // different installation from PATH or provision shared tools for file export.
+    if let Some(path) = magiskboot_path {
+        let path = std::fs::canonicalize(path).context("specified magiskboot not found")?;
+        // APK native libraries are already executable and not app-owned.
+        return Ok(path);
+    }
     let magiskboot = {
         if which("magiskboot").is_ok() {
-            #[cfg(target_os = "android")]
-            let _ = assets::ensure_binaries(true);
             "magiskboot".into()
         } else {
             // magiskboot is not in $PATH, use builtin or specified one
-            let magiskboot = if let Some(magiskboot_path) = magiskboot_path {
-                std::fs::canonicalize(magiskboot_path)?
-            } else {
-                let magiskboot_path = workdir.join("magiskboot");
-                assets::copy_assets_to_file("magiskboot", &magiskboot_path)
-                    .context("copy magiskboot failed")?;
-                magiskboot_path
-            };
+            let magiskboot = workdir.join("magiskboot");
+            assets::copy_assets_to_file("magiskboot", &magiskboot)
+                .context("copy magiskboot failed")?;
             ensure!(magiskboot.exists(), "{} is not exist", magiskboot.display());
             #[cfg(unix)]
             let _ = std::fs::set_permissions(&magiskboot, std::fs::Permissions::from_mode(0o755));
@@ -587,7 +587,9 @@ pub fn patch(args: BootPatchArgs) -> Result<()> {
 
         // try extract magiskboot/bootctl
         #[cfg(target_os = "android")]
-        let _ = assets::ensure_binaries(false);
+        if !patch_file {
+            let _ = assets::ensure_binaries(false);
+        }
 
         if let Some(kernel) = kernel {
             std::fs::copy(kernel, workdir.join("kernel")).context("copy kernel from failed")?;

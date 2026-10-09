@@ -365,7 +365,7 @@ enum Profile {
 enum Feature {
     /// Get feature value and support status
     Get {
-        /// Feature ID or name (su_compat, kernel_umount)
+        /// Feature ID or name (su_compat, kernel_umount, selinux_hide)
         id: String,
         /// Read from config file
         #[arg(long, default_value_t = false)]
@@ -376,8 +376,11 @@ enum Feature {
     Set {
         /// Feature ID or name
         id: String,
-        /// Feature value (0=disable, 1=enable)
+        /// Feature value (SELinux hide: 0=disable, any nonzero=enable)
         value: u64,
+        /// Persist the requested state, including SELinux hide requests requiring a reboot
+        #[arg(long, default_value_t = false)]
+        persist: bool,
     },
 
     /// List all available features
@@ -385,7 +388,7 @@ enum Feature {
 
     /// Check feature status (supported/unsupported/managed)
     Check {
-        /// Feature ID or name (su_compat, kernel_umount)
+        /// Feature ID or name (su_compat, kernel_umount, selinux_hide)
         id: String,
     },
 
@@ -656,7 +659,7 @@ pub fn run() -> Result<()> {
                     crate::feature::get_feature(&id)
                 }
             }
-            Feature::Set { id, value } => crate::feature::set_feature(&id, value),
+            Feature::Set { id, value, persist } => crate::feature::set_feature(&id, value, persist),
             Feature::List => {
                 crate::feature::list_features();
                 Ok(())

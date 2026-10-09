@@ -1,0 +1,14 @@
+[package]
+name = "ksud-installer-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+rust-embed = { version = "8", features = ["debug-embed", "compression"] }
+which = "8"
+tempfile = "3"
+chrono = "0.4"
+regex-lite = "0.1"

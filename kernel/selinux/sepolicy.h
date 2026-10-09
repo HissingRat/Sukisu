@@ -5,6 +5,12 @@
 
 #include "ss/policydb.h"
 
+struct selinux_policy;
+/* Clones policydb while preserving the live policy's SID table/mapping pointers.
+ * Callers hold policy_mutex; destroy does not free those shared pointers. */
+struct selinux_policy *ksu_dup_sepolicy(struct selinux_policy *old_pol);
+void ksu_destroy_sepolicy(struct selinux_policy *pol);
+
 // Operation on types
 bool ksu_type(struct policydb *db, const char *name, const char *attr);
 bool ksu_attribute(struct policydb *db, const char *name);

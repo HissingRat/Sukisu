@@ -88,10 +88,15 @@ bool is_KPM_enable();
 
 void get_hook_type(char* hook_type);
 
+// Signed result: 0/1 is active state, negative values are errno.
+int get_selinux_hide_state();
+int set_selinux_hide_enabled(bool enabled);
+
 // Feature IDs
 enum ksu_feature_id {
     KSU_FEATURE_SU_COMPAT = 0,
     KSU_FEATURE_KERNEL_UMOUNT = 1,
+    KSU_FEATURE_SELINUX_HIDE = 4,
 };
 
 // Generic feature API

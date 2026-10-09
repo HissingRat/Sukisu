@@ -1,6 +1,7 @@
 #include <linux/rcupdate.h>
 #include <linux/slab.h>
 #include <linux/task_work.h>
+#include <linux/module.h>
 #include <asm/current.h>
 #include <linux/compat.h>
 #include <linux/cred.h>
@@ -23,6 +24,8 @@
 #include "arch.h"
 #include "klog.h" // IWYU pragma: keep
 #include "ksud.h"
+#include "selinux_hide.h"
+#include "ksu.h"
 #include "util.h"
 #include "selinux/selinux.h"
 #include "throne_tracker.h"
@@ -75,7 +78,9 @@ void on_post_fs_data(void)
     ksu_load_allow_list();
     ksu_observer_init();
     // sanity check, this may influence the performance
-    stop_input_hook();
+    if (!ksu_late_loaded)
+        stop_input_hook();
+    ksu_selinux_hide_handle_post_fs_data();
 }
 
 extern void ext4_unregister_sysfs(struct super_block *sb);
@@ -109,6 +114,7 @@ void on_module_mounted(void)
 
 void on_boot_completed(void)
 {
+    ksu_selinux_hide_boot_completed();
     ksu_boot_completed = true;
     pr_info("on_boot_completed!\n");
     track_throne(true);
@@ -215,6 +221,41 @@ fail:
     return false;
 }
 
+/* Policy serialization allocates and sleeps; never run it in a kprobe handler. */
+static atomic_t second_stage_queued = ATOMIC_INIT(0);
+
+static void second_stage_setup(struct callback_head *work)
+{
+    ksu_selinux_hide_handle_second_stage();
+    apply_kernelsu_rules();
+    cache_sid();
+    setup_ksu_cred();
+}
+
+static struct callback_head second_stage_work = { .func = second_stage_setup };
+
+static int queue_second_stage_setup(void)
+{
+    int ret;
+
+    /* Only the real init's first second-stage exec initializes KernelSU. */
+    if (current->pid != 1)
+        return -EINVAL;
+    if (atomic_cmpxchg(&second_stage_queued, 0, 1))
+        return 0;
+    /* Keep the one-shot callback's code alive until reboot, even during boot. */
+    if (!try_module_get(THIS_MODULE)) {
+        atomic_set(&second_stage_queued, 0);
+        return -EBUSY;
+    }
+    ret = task_work_add(current, &second_stage_work, TWA_RESUME);
+    if (ret) {
+        module_put(THIS_MODULE);
+        atomic_set(&second_stage_queued, 0);
+    }
+    return ret;
+}
+
 // IMPORTANT NOTE: the call from execve_handler_pre WON'T provided correct value for envp and flags in GKI version
 int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
                              struct user_arg_ptr *argv,
@@ -245,9 +286,11 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
         if (!init_second_stage_executed &&
             check_argv(*argv, 1, "second_stage", buf, sizeof(buf))) {
             pr_info("/system/bin/init second_stage executed\n");
-            apply_kernelsu_rules();
-            cache_sid();
-            setup_ksu_cred();
+            int ret = queue_second_stage_setup();
+            if (ret) {
+                pr_err("queue init second-stage setup failed: %d\n", ret);
+                return 0;
+            }
             init_second_stage_executed = true;
         }
     }

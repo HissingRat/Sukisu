@@ -11,6 +11,17 @@ kernelsu-objs += kernel_umount.o
 kernelsu-objs += supercalls.o
 kernelsu-objs += su_mount_ns.o
 kernelsu-objs += feature.o
+kernelsu-objs += selinux_hide.o
+kernelsu-objs += infra/symbol_resolver.o
+kernelsu-objs += hook/lsm_hook.o
+ifeq ($(CONFIG_ARM64),y)
+kernelsu-objs += hook/arm64/patch_memory.o
+else ifeq ($(CONFIG_X86_64),y)
+kernelsu-objs += hook/x86_64/patch_memory.o
+endif
+ccflags-y += -I$(src)
+KSU_NEW_DCACHE_FLUSH := $(shell grep -q __flush_dcache_area $(srctree)/arch/arm64/include/asm/cacheflush.h 2>/dev/null; echo $$?)
+ccflags-y += -DKSU_NEW_DCACHE_FLUSH=$(KSU_NEW_DCACHE_FLUSH)
 kernelsu-objs += ksud.o
 kernelsu-objs += seccomp_cache.o
 kernelsu-objs += file_wrapper.o

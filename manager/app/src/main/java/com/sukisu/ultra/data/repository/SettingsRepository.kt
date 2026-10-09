@@ -25,6 +25,12 @@ interface SettingsRepository {
     fun isKernelUmountEnabled(): Boolean
     fun setKernelUmountEnabled(enabled: Boolean): Boolean
 
+    suspend fun getSelinuxHideStatus(): String
+    suspend fun getSelinuxHidePersistValue(): Long?
+    fun getSelinuxHideState(): Int
+    fun setSelinuxHideEnabled(enabled: Boolean): Int
+    fun persistSelinuxHide(enabled: Boolean): Boolean
+
     fun isDefaultUmountModules(): Boolean
     fun setDefaultUmountModules(enabled: Boolean): Boolean
 

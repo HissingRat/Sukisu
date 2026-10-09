@@ -10,6 +10,7 @@
 #include <dirent.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <errno.h>
 
 #include "prelude.h"
 #include "ksu.h"
@@ -203,6 +204,28 @@ bool is_kernel_umount_enabled() {
         return false;
     }
     return value != 0;
+}
+
+int get_selinux_hide_state() {
+    struct ksu_get_feature_cmd cmd = {};
+    cmd.feature_id = KSU_FEATURE_SELINUX_HIDE;
+    if (ksuctl(KSU_IOCTL_GET_FEATURE, &cmd) != 0) {
+        int error = errno;
+        // Older kernels reject an unknown feature or ioctl rather than returning supported=false.
+        if (error == EINVAL || error == ENOTTY || error == EOPNOTSUPP) {
+            return -EOPNOTSUPP;
+        }
+        return -error;
+    }
+    return cmd.supported ? (cmd.value != 0 ? 1 : 0) : -EOPNOTSUPP;
+}
+
+int set_selinux_hide_enabled(bool enabled) {
+    struct ksu_set_feature_cmd cmd = {};
+    cmd.feature_id = KSU_FEATURE_SELINUX_HIDE;
+    cmd.value = enabled ? 1 : 0;
+    // Capture the real ioctl error, including EAGAIN (backup unavailable until reboot).
+    return ksuctl(KSU_IOCTL_SET_FEATURE, &cmd) == 0 ? 0 : -errno;
 }
 
 void get_full_version(char* buff) {

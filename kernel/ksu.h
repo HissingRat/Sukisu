@@ -35,5 +35,6 @@ static inline int endswith(const char *s, const char *t)
 #endif
 
 extern struct cred *ksu_cred;
+extern bool ksu_late_loaded;
 
 #endif

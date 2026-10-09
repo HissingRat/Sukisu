@@ -25,8 +25,25 @@ data class SettingsUiState(
     val kernelUmountStatus: String = "",
     val isKernelUmountEnabled: Boolean = false,
 
+    // The switch represents the active context/access query group. A requested enable
+    // can already mask SELinux status while the core group still requires reboot.
+    val selinuxHideStatus: String = "",
+    val isSelinuxHideEnabled: Boolean = false,
+    val selinuxHideRequestedEnabled: Boolean? = null,
+    val selinuxHideBusy: Boolean = false,
+    val selinuxHideError: String? = null,
+
     // Umount Modules
     val isDefaultUmountModules: Boolean = false,
 
     val isLkmMode: Boolean = false
-)
+) {
+    // Requested status-only hiding has no separate feature getter. Always provide
+    // an explicit reset when core queries are inactive, including after app relaunch.
+    val selinuxHideCanClearRequest: Boolean
+        get() = selinuxHideStatus == "supported" && !isSelinuxHideEnabled
+
+    val selinuxHidePendingReboot: Boolean
+        get() = selinuxHideRequestedEnabled != null &&
+            selinuxHideRequestedEnabled != isSelinuxHideEnabled
+}

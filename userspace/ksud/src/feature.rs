@@ -3,6 +3,7 @@ use const_format::concatcp;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
 use std::path::Path;
 
 use crate::defs;
@@ -17,6 +18,8 @@ const FEATURE_VERSION: u32 = 1;
 pub enum FeatureId {
     SuCompat = 0,
     KernelUmount = 1,
+    // IDs 2 and 3 are reserved for upstream features.
+    SelinuxHide = 4,
 }
 
 impl FeatureId {
@@ -24,6 +27,7 @@ impl FeatureId {
         match id {
             0 => Some(Self::SuCompat),
             1 => Some(Self::KernelUmount),
+            4 => Some(Self::SelinuxHide),
             _ => None,
         }
     }
@@ -32,6 +36,7 @@ impl FeatureId {
         match self {
             Self::SuCompat => "su_compat",
             Self::KernelUmount => "kernel_umount",
+            Self::SelinuxHide => "selinux_hide",
         }
     }
 
@@ -43,15 +48,60 @@ impl FeatureId {
             Self::KernelUmount => {
                 "Kernel Umount - controls whether kernel automatically unmounts modules when not needed"
             }
+            Self::SelinuxHide => "SELinux Hide - hide SELinux policy modifications from app UIDs",
         }
     }
+}
+
+fn query_feature(feature: FeatureId) -> std::io::Result<(u64, bool)> {
+    match crate::ksucalls::get_feature(feature as u32) {
+        Err(error)
+            if feature == FeatureId::SelinuxHide
+                && matches!(
+                    error.raw_os_error(),
+                    Some(libc::EINVAL | libc::ENOTTY | libc::EOPNOTSUPP)
+                ) =>
+        {
+            Ok((0, false))
+        }
+        result => result,
+    }
+}
+
+fn is_selinux_hide_pending(feature: FeatureId, value: u64, error: &std::io::Error) -> bool {
+    feature == FeatureId::SelinuxHide && value == 1 && error.raw_os_error() == Some(libc::EAGAIN)
 }
 
 fn parse_feature_id(name: &str) -> Result<FeatureId> {
     match name {
         "su_compat" | "0" => Ok(FeatureId::SuCompat),
         "kernel_umount" | "1" => Ok(FeatureId::KernelUmount),
+        "selinux_hide" | "4" => Ok(FeatureId::SelinuxHide),
         _ => bail!("Unknown feature: {name}"),
+    }
+}
+
+// All read/modify/write paths share this lock; atomic replacement alone cannot
+// prevent an unrelated concurrent feature save from overwriting a pending request.
+fn lock_config() -> Result<File> {
+    let directory = Path::new(defs::WORKING_DIR);
+    crate::utils::ensure_dir_exists(directory)?;
+    let lock = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(directory.join(".feature_config.lock"))
+        .with_context(|| "Failed to open feature config lock")?;
+    loop {
+        // SAFETY: lock owns a live fd; flock does not retain a userspace pointer.
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            return Ok(lock);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error).with_context(|| "Failed to lock feature config");
+        }
     }
 }
 
@@ -70,7 +120,7 @@ pub fn load_binary_config() -> Result<HashMap<u32, u64>> {
     let magic = u32::from_le_bytes(magic_buf);
 
     if magic != FEATURE_MAGIC {
-        bail!("Invalid feature config magic: expected 0x{FEATURE_MAGIC:08x}, got 0x{magic:08x}",);
+        bail!("Invalid feature config magic: expected 0x{FEATURE_MAGIC:08x}, got 0x{magic:08x}");
     }
 
     let mut version_buf = [0u8; 4];
@@ -114,7 +164,9 @@ pub fn save_binary_config(features: &HashMap<u32, u64>) -> Result<()> {
     crate::utils::ensure_dir_exists(Path::new(defs::WORKING_DIR))?;
 
     let path = Path::new(FEATURE_CONFIG_PATH);
-    let mut file = File::create(path).with_context(|| "Failed to create feature config")?;
+    // Replace atomically: a failed write must not truncate the previous boot configuration.
+    let mut file = tempfile::NamedTempFile::new_in(Path::new(defs::WORKING_DIR))
+        .with_context(|| "Failed to create temporary feature config")?;
 
     file.write_all(&FEATURE_MAGIC.to_le_bytes())
         .with_context(|| "Failed to write magic")?;
@@ -133,8 +185,12 @@ pub fn save_binary_config(features: &HashMap<u32, u64>) -> Result<()> {
             .with_context(|| format!("Failed to write feature value for id {id}"))?;
     }
 
-    file.sync_all()
+    file.as_file()
+        .sync_all()
         .with_context(|| "Failed to sync feature config")?;
+
+    file.persist(path)
+        .with_context(|| "Failed to replace feature config")?;
 
     log::info!("Saved {} features to config", features.len());
     Ok(())
@@ -165,8 +221,8 @@ pub fn apply_config(features: &HashMap<u32, u64>) {
 
 pub fn get_feature(id: &str) -> Result<()> {
     let feature_id = parse_feature_id(id)?;
-    let (value, supported) = crate::ksucalls::get_feature(feature_id as u32)
-        .with_context(|| format!("Failed to get feature {id}"))?;
+    let (value, supported) =
+        query_feature(feature_id).with_context(|| format!("Failed to get feature {id}"))?;
 
     if !supported {
         println!("Feature '{id}' is not supported by kernel");
@@ -180,6 +236,15 @@ pub fn get_feature(id: &str) -> Result<()> {
         "Status: {}",
         if value != 0 { "enabled" } else { "disabled" }
     );
+
+    if feature_id == FeatureId::SelinuxHide {
+        let features = load_binary_config()?;
+        if let Some(requested) = features.get(&(feature_id as u32))
+            && *requested != value
+        {
+            println!("Requested value: {requested} (saved; reboot required)");
+        }
+    }
 
     Ok(())
 }
@@ -206,8 +271,16 @@ pub fn get_feature_config(id: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn set_feature(id: &str, value: u64) -> Result<()> {
+pub fn set_feature(id: &str, value: u64, persist: bool) -> Result<()> {
     let feature_id = parse_feature_id(id)?;
+
+    // Match the kernel/upstream nonzero boolean semantics while storing a canonical
+    // request, so pending enables always persist as 1 rather than arbitrary values.
+    let value = if feature_id == FeatureId::SelinuxHide {
+        u64::from(value != 0)
+    } else {
+        value
+    };
 
     // Check if this feature is managed by any module
     if let Ok(managed_features_map) = crate::module::get_managed_features() {
@@ -241,8 +314,28 @@ pub fn set_feature(id: &str, value: u64) -> Result<()> {
         }
     }
 
-    crate::ksucalls::set_feature(feature_id as u32, value)
-        .with_context(|| format!("Failed to set feature {id} to {value}"))?;
+    let _config_lock = if persist { Some(lock_config()?) } else { None };
+    let pending_reboot = match crate::ksucalls::set_feature(feature_id as u32, value) {
+        Ok(()) => false,
+        Err(error) if persist && is_selinux_hide_pending(feature_id, value, &error) => true,
+        Err(error) => {
+            return Err(error).with_context(|| format!("Failed to set feature {id} to {value}"));
+        }
+    };
+
+    if persist {
+        let mut features = load_binary_config()?;
+        features.insert(feature_id as u32, value);
+        save_binary_config(&features)?;
+    }
+
+    if pending_reboot {
+        println!(
+            "Feature '{}' enable request saved; reboot to take full effect",
+            feature_id.name()
+        );
+        return Ok(());
+    }
 
     println!(
         "Feature '{}' set to {value} ({})",
@@ -271,18 +364,19 @@ pub fn list_features() {
         }
     }
 
-    let all_features = [FeatureId::SuCompat, FeatureId::KernelUmount];
+    let all_features = [
+        FeatureId::SuCompat,
+        FeatureId::KernelUmount,
+        FeatureId::SelinuxHide,
+    ];
 
     for feature_id in &all_features {
         let id = *feature_id as u32;
-        let (value, supported) = crate::ksucalls::get_feature(id).unwrap_or((0, false));
-
-        let status = if !supported {
-            "NOT_SUPPORTED".to_string()
-        } else if value != 0 {
-            format!("ENABLED ({value})")
-        } else {
-            "DISABLED".to_string()
+        let status = match query_feature(*feature_id) {
+            Ok((_, false)) => "NOT_SUPPORTED".to_string(),
+            Ok((0, true)) => "DISABLED".to_string(),
+            Ok((value, true)) => format!("ENABLED ({value})"),
+            Err(error) => format!("ERROR ({error})"),
         };
 
         let managed_by = feature_to_modules.get(feature_id.name());
@@ -313,6 +407,7 @@ pub fn list_features() {
 }
 
 pub fn load_config_and_apply() -> Result<()> {
+    let _config_lock = lock_config()?;
     let features = load_binary_config()?;
 
     if features.is_empty() {
@@ -326,17 +421,29 @@ pub fn load_config_and_apply() -> Result<()> {
 }
 
 pub fn save_config() -> Result<()> {
-    let mut features = HashMap::new();
+    let _config_lock = lock_config()?;
+    let mut features = load_binary_config()?;
 
-    let all_features = [FeatureId::SuCompat, FeatureId::KernelUmount];
+    let all_features = [
+        FeatureId::SuCompat,
+        FeatureId::KernelUmount,
+        FeatureId::SelinuxHide,
+    ];
 
     for feature_id in &all_features {
         let id = *feature_id as u32;
-        if let Ok((value, supported)) = crate::ksucalls::get_feature(id)
+        if let Ok((value, supported)) = query_feature(*feature_id)
             && supported
         {
-            features.insert(id, value);
-            log::info!("Saved feature {} = {value}", feature_id.name());
+            // A pending SELinux enable remains disabled in the kernel until reboot.
+            // Other feature switches call `feature save`; retain its requested boot value.
+            let pending_enable = feature_id == &FeatureId::SelinuxHide
+                && value == 0
+                && features.get(&id) == Some(&1);
+            if !pending_enable {
+                features.insert(id, value);
+            }
+            log::info!("Saved feature {} = {}", feature_id.name(), features[&id]);
         }
     }
 
@@ -363,8 +470,8 @@ pub fn check_feature(id: &str) -> Result<()> {
     }
 
     // Check if the feature is supported by kernel
-    let (_value, supported) = crate::ksucalls::get_feature(feature_id as u32)
-        .with_context(|| format!("Failed to get feature {id}"))?;
+    let (_value, supported) =
+        query_feature(feature_id).with_context(|| format!("Failed to get feature {id}"))?;
 
     if supported {
         println!("supported");
@@ -376,6 +483,7 @@ pub fn check_feature(id: &str) -> Result<()> {
 }
 
 pub fn init_features() -> Result<()> {
+    let _config_lock = lock_config()?;
     log::info!("Initializing features from config...");
 
     let mut features = load_binary_config()?;

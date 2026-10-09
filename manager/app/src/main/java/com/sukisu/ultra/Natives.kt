@@ -93,6 +93,11 @@ object Natives {
     external fun isKernelUmountEnabled(): Boolean
     external fun setKernelUmountEnabled(enabled: Boolean): Boolean
 
+    // 0/1 = active state, negative errno = unsupported or failed query.
+    external fun getSelinuxHideState(): Int
+    // 0 = applied, -EAGAIN = reboot required; all other errors are failures.
+    external fun setSelinuxHideEnabled(enabled: Boolean): Int
+
     /**
      * Get the user name for the uid.
      */

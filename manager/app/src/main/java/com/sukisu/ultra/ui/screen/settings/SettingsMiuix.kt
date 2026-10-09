@@ -579,6 +579,22 @@ fun SettingPagerMiuix(
                         )
 
                         SuperSwitch(
+                            title = stringResource(R.string.settings_selinux_hide),
+                            summary = selinuxHideSummary(uiState),
+                            enabled = uiState.selinuxHideStatus == "supported" && !uiState.selinuxHideBusy,
+                            checked = uiState.isSelinuxHideEnabled,
+                            onCheckedChange = viewModel::setSelinuxHideEnabled
+                        )
+                        if (uiState.selinuxHidePendingReboot || uiState.selinuxHideCanClearRequest) {
+                            SuperArrow(
+                                title = stringResource(if (uiState.selinuxHideCanClearRequest)
+                                    R.string.settings_selinux_hide_clear_request else R.string.settings_selinux_hide_cancel_pending),
+                                enabled = uiState.selinuxHideStatus == "supported" && !uiState.selinuxHideBusy,
+                                onClick = { viewModel.setSelinuxHideEnabled(uiState.isSelinuxHideEnabled) }
+                            )
+                        }
+
+                        SuperSwitch(
                             title = stringResource(id = R.string.settings_umount_modules_default),
                             summary = stringResource(id = R.string.settings_umount_modules_default_summary),
                             startAction = {

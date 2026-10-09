@@ -6,6 +6,7 @@
 
 #include "allowlist.h"
 #include "feature.h"
+#include "selinux_hide.h"
 #include "klog.h" // IWYU pragma: keep
 #include "throne_tracker.h"
 #include "syscall_hook_manager.h"
@@ -13,6 +14,13 @@
 #include "supercalls.h"
 #include "ksu.h"
 #include "file_wrapper.h"
+#include "infra/symbol_resolver.h"
+#include "hook/lsm_hook.h"
+#include "selinux/selinux.h"
+#include "app_profile.h"
+#include "manager.h"
+#include "security.h"
+#include <linux/rcupdate.h>
 
 // workaround for A12-5.10 kernel
 // Some third-party kernel (e.g. linegaeOS) uses wrong toolchain, which supports
@@ -20,7 +28,7 @@
 // Therefore, ksu lkm, which uses gki toolchain, requires this __stack_chk_guard,
 // while those third-party kernel can't provide.
 // Thus, we manually provide it instead of using kernel's
-#if defined(CONFIG_STACKPROTECTOR) && !defined(CONFIG_STACKPROTECTOR_PER_TASK)
+#if defined(CONFIG_ARM64) && defined(CONFIG_STACKPROTECTOR) && !defined(CONFIG_STACKPROTECTOR_PER_TASK)
 #include <linux/stackprotector.h>
 #include <linux/random.h>
 unsigned long __stack_chk_guard __ro_after_init
@@ -31,6 +39,7 @@ unsigned long __stack_chk_guard __ro_after_init
 #endif
 
 struct cred *ksu_cred;
+bool ksu_late_loaded;
 
 void sukisu_custom_config_init(void)
 {
@@ -43,7 +52,7 @@ void sukisu_custom_config_exit(void)
 NO_STACK_PROTECTOR_WORKAROUND
 int __init kernelsu_init(void)
 {
-#if defined(CONFIG_STACKPROTECTOR) && !defined(CONFIG_STACKPROTECTOR_PER_TASK)
+#if defined(CONFIG_ARM64) && defined(CONFIG_STACKPROTECTOR) && !defined(CONFIG_STACKPROTECTOR_PER_TASK)
     unsigned long canary;
 
     /* Try to get a semi random initial value. */
@@ -66,23 +75,49 @@ int __init kernelsu_init(void)
     ksu_cred = prepare_creds();
     if (!ksu_cred) {
         pr_err("prepare cred failed!\n");
+        return -ENOMEM;
     }
 
+#ifdef MODULE
+    /* A non-init loader can also run during early boot, before any policy exists.
+     * Keep that case on the early hooks instead of dereferencing a NULL policy. */
+    ksu_late_loaded = current->pid != 1 && rcu_access_pointer(selinux_state.policy);
+#else
+    ksu_late_loaded = false;
+#endif
+    ksu_init_symbol_resolver();
+    ksu_lsm_hook_init();
     ksu_feature_init();
+
+    ksu_selinux_hide_init();
 
     ksu_supercalls_init();
 
     sukisu_custom_config_init();
 
-    ksu_syscall_hook_manager_init();
-
-    ksu_allowlist_init();
-
-    ksu_throne_tracker_init();
-
-    ksu_ksud_init();
-
-    ksu_file_wrapper_init();
+    if (ksu_late_loaded) {
+        /* Match upstream late-load bootstrap before any user feature request. */
+        apply_kernelsu_rules();
+        cache_sid();
+        setup_ksu_cred();
+        escape_to_root_for_init();
+        ksu_allowlist_init();
+        ksu_load_allow_list();
+        ksu_syscall_hook_manager_init();
+        ksu_throne_tracker_init();
+        ksu_observer_init();
+        ksu_file_wrapper_init();
+        ksu_boot_completed = true;
+        track_throne(false);
+        if (!getenforce())
+            setenforce(true);
+    } else {
+        ksu_syscall_hook_manager_init();
+        ksu_allowlist_init();
+        ksu_throne_tracker_init();
+        ksu_ksud_init();
+        ksu_file_wrapper_init();
+    }
 
 #ifdef MODULE
 #ifndef CONFIG_KSU_DEBUG
@@ -101,13 +136,16 @@ void kernelsu_exit(void)
 
     ksu_observer_exit();
 
-    ksu_ksud_exit();
+    if (!ksu_late_loaded)
+        ksu_ksud_exit();
 
     ksu_syscall_hook_manager_exit();
 
     sukisu_custom_config_exit();
 
     ksu_supercalls_exit();
+
+    ksu_selinux_hide_exit();
 
     ksu_feature_exit();
 

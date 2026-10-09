@@ -1,0 +1,12 @@
+[package]
+name = "ksud-feature-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1"
+const_format = "0.2"
+log = "0.4"
+tempfile = "3"
+libc = "0.2"

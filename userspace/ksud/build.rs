@@ -25,6 +25,24 @@ fn get_git_version() -> Result<(u32, String), std::io::Error> {
 }
 
 fn main() {
+    // Compressed RustEmbed resources must rebuild when installer assets change.
+    println!("cargo:rerun-if-changed=bin/aarch64");
+    println!("cargo:rerun-if-changed=bin/x86_64");
+    // Keep normal git-derived versions fresh when switching branches or committing.
+    for git_path in ["HEAD", "refs", "packed-refs"] {
+        if let Ok(output) = Command::new("git")
+            .args(["rev-parse", "--git-path", git_path])
+            .output()
+            && output.status.success()
+        {
+            println!(
+                "cargo:rerun-if-changed={}",
+                String::from_utf8_lossy(&output.stdout).trim()
+            );
+        }
+    }
+    println!("cargo:rerun-if-env-changed=SUKISU_VERSION_CODE");
+    println!("cargo:rerun-if-env-changed=SUKISU_VERSION_NAME");
     let (code, name) = match get_git_version() {
         Ok((code, name)) => (code, name),
         Err(_) => {
@@ -33,6 +51,10 @@ fn main() {
             (0, "0.0.0".to_string())
         }
     };
+    let code = env::var("SUKISU_VERSION_CODE").map_or(code, |value| {
+        value.parse().expect("Invalid SUKISU_VERSION_CODE")
+    });
+    let name = env::var("SUKISU_VERSION_NAME").unwrap_or(name);
     let out_dir = env::var("OUT_DIR").expect("Failed to get $OUT_DIR");
     let out_dir = Path::new(&out_dir);
     File::create(Path::new(out_dir).join("VERSION_CODE"))
