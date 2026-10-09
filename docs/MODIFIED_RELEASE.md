@@ -59,3 +59,64 @@ Current boot partitions, shared state and old app data must be backed up before
 the authorized uninstall and flash. Flash/reboot verification and permanent
 installation are handled by the sole device operator. The final device record
 must distinguish this new release certificate/module from the older test build.
+
+## Completed deployment and persistence check
+
+The final APK was exported after commit
+`2abdc055fb7ca815f11f24f46446fc3672bff8c6` was pushed. Its provenance records
+that exact build commit and clean source. APK SHA256:
+`3c684d809908db529b285e1660852201bfc35fa785f97936696180da771e296d`
+(7,395,834 bytes). A matching copy is saved in the user's `op11` Downloads
+folder as `SukiSU_v4.1.2-modified_40545-arm64-release.apk`.
+
+Deployment completed on the PHB110 running Android 15,
+`5.15.167-android13-8-o-01144-gb3f32e037fab`, with 4 KiB pages:
+
+- The existing installed APK, private app data, both current init_boot slots
+  and shared root state were backed up before the authorized uninstall/flash.
+  The old app was uninstalled through Android UI and the signed release was
+  installed through Android UI. Its actual installed bytes/signature match
+  the delivered APK.
+- The **Miuix default UI** performed the complete file-picker flow against a
+  copied original image: Select a file → original init_boot copy → Next →
+  `android13-5.15` → Confirm → patch/export completion. No theme change or
+  command-line image patching substituted for this flow. The genuine published
+  MediaStore export is retained on the phone.
+- The exported 8 MiB image is saved as the new
+  `kernelsu_patched_v4.1.2-modified_20261009_2307.img` in the user's `op11`
+  Downloads folder, SHA256
+  `5a1bd866ce638bdc2292e9f259c53627f209b9d6d704cc6d29ec2bcc93e3fad4`.
+  Independent decoding confirms the release module
+  `787d23547001b94d0339c19f00fb92f2e1132551e18c88ee28d10f3fd7288ab2`
+  and unchanged loader. Other original CPIO contents, metadata and hardlink
+  relationships are preserved. Header differences are limited to ramdisk
+  length; the 832-byte AVB metadata is identical and footer offsets are correct.
+- The exact exported image was flashed only to `init_boot_a`; fastboot reported
+  successful send/write. Boot completed and the phone unlocked normally. The
+  app reports Working LKM `40545`, Tracepoint Hook, one superuser, eight
+  existing modules, and `v4.1.2 modified (40545)`.
+- Production daemon installation succeeded. `/data/adb/ksud` exactly matches
+  the release APK daemon, SHA256
+  `50840b0e0ab82509516227811162e62d878266f583117444f5a67792eae4e880`.
+  Slot B, the allowlist and shared executable contents retain their original
+  hashes. Both user-original images and the original keystore remain unchanged.
+- Enabling the SELinux-hide setting through the actual UI saved requested
+  value `1` while runtime value stayed `0` pending reboot. After the second
+  authorized reboot, runtime and saved configuration for `selinux_hide`
+  (feature ID `4`) both read `1`; the UI toggle is on and displays
+  **SELinux 上下文与访问查询隐藏已启用**. `su_compat` and `kernel_umount`
+  remain enabled. `getenforce` still returns `Enforcing`.
+
+The new functional release and enabled hide setting remain installed. Owned
+temporary transports/scripts and staging files were removed; the genuine phone
+export and host APK/image remain. The temporary Files install permission was
+restored to off, the preexisting test package was left untouched, and the task
+Colima VM was stopped. This round boot-tested the current `android13-5.15` phone; the other six KMIs retain
+build/resource verification only. It establishes no 16 KiB page support.
+
+Evidence remains locally in ignored `cache/release-deploy/`, including
+`flash-init_boot_a.txt`, `runtime-before-enable.txt`, `runtime-before-reboot.txt`,
+`runtime-final.txt`, `deployment-result.json`, the UI captures, installed APK verification,
+`image-comparison.json` and `independent-image-review.json`. Genuine rollback
+images, old installed APK and private state backups remain in its `rollback/`
+folder. No private backup contents or signing credentials are committed.
