@@ -29,7 +29,8 @@ def checked_file(path, expected, elf_type):
     return {"source": str(path.resolve()), "sha256": digest, "size": len(data)}
 
 
-def stock_module_set(path):
+def stock_module_set(path, pairing=None):
+    pairing = pairing or {"manager_package": MANAGER, "cert_size": 744, "cert_sha256": CERT}
     baseline = subprocess.check_output(["git", "show", f"{STOCK['base_commit']}:{STOCK['workflow']}"],
                                        cwd=ROOT, text=True)
     names = re.findall(r"^\s+- (android\d+-\d+\.\d+)$", baseline, re.MULTILINE)
@@ -56,8 +57,8 @@ def stock_module_set(path):
         if len(matches) != 1 or not matches[0].startswith((version + ".").encode()):
             raise ValueError(f"wrong kernel vermagic for {kmi}")
         if (entry["build"]["kmi"] != kmi or entry["build"]["status"] != 0
-                or entry["manager_package"] != MANAGER or entry["cert_size"] != 744
-                or entry["cert_sha256"] != CERT or not entry["matching_vmlinux_symbol_check"]):
+                or entry["manager_package"] != pairing["manager_package"] or entry["cert_size"] != pairing["cert_size"]
+                or entry["cert_sha256"] != pairing["cert_sha256"] or not entry["matching_vmlinux_symbol_check"]):
             raise ValueError(f"unverified or differently paired module: {kmi}")
         source_manifest = ROOT / entry["source_manifest"]
         source_files = json.loads(source_manifest.read_text())
@@ -73,7 +74,7 @@ def stock_module_set(path):
         if matches[0].decode() != entry["vermagic"]:
             raise ValueError(f"module vermagic does not match independent record: {kmi}")
         data = source.read_bytes()
-        if MANAGER.encode() not in data or CERT.encode() not in data:
+        if pairing["manager_package"].encode() + b"\0" not in data or pairing["cert_sha256"].encode() not in data:
             raise ValueError(f"module binary does not contain the paired Manager/certificate: {kmi}")
         metadata["provenance"] = entry
         metadata["source_manifest_sha256"] = hashlib.sha256(source_manifest.read_bytes()).hexdigest()
@@ -88,13 +89,18 @@ def main():
     modules.add_argument("--module", type=Path)
     modules.add_argument("--module-set", type=Path, help="independent seven-KMI module provenance JSON")
     parser.add_argument("--module-sha256")
+    parser.add_argument("--pairing", type=Path, help="public Manager package and signing-certificate metadata")
     parser.add_argument("--loader", type=Path, required=True)
     parser.add_argument("--loader-sha256", required=True)
     parser.add_argument("--loader-provenance", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
+    pairing = json.loads(args.pairing.read_text()) if args.pairing else {
+        "manager_package": MANAGER, "cert_size": 744, "cert_sha256": CERT}
+    if args.pairing and not args.module_set:
+        parser.error("--pairing requires --module-set so every module's trust pairing is checked")
     if args.module_set:
-        resources = stock_module_set(args.module_set)
+        resources = stock_module_set(args.module_set, pairing)
         kmis = STOCK["kmis"]
     else:
         if not args.module_sha256:
@@ -119,7 +125,7 @@ def main():
             shutil.copyfile(metadata["source"], target)
         (destination / name).chmod(0o755)
     args.manifest.parent.mkdir(parents=True, exist_ok=True)
-    args.manifest.write_text(json.dumps({"architecture": "arm64-v8a", "supported_kmis": kmis,
+    args.manifest.write_text(json.dumps({"architecture": "arm64-v8a", "supported_kmis": kmis, "pairing": pairing,
                                          "resources": resources}, indent=2) + "\n")
     print(args.manifest)
 

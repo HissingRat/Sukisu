@@ -1,12 +1,12 @@
 #!/bin/sh
-# Stage verified inputs, compile the daemon, and build/sign an ARM64-only test APK.
+# Stage verified inputs, compile the daemon, and build/sign an ARM64-only APK.
 # Arguments are the --module/--loader/hash/provenance options documented for stage.py.
 set -eu
 cd "$(dirname "$0")/../.."
 : "${ANDROID_HOME:?Set ANDROID_HOME}"
 : "${ANDROID_NDK_HOME:?Set ANDROID_NDK_HOME}"
 : "${JAVA_HOME:?Set JAVA_HOME to Java 21}"
-: "${INSTALLER_KEYSTORE:?Set INSTALLER_KEYSTORE to the paired development keystore}"
+: "${INSTALLER_KEYSTORE:?Set INSTALLER_KEYSTORE to the paired keystore}"
 : "${INSTALLER_KEY_ALIAS:?Set INSTALLER_KEY_ALIAS}"
 : "${INSTALLER_STORE_PASSWORD:?Set INSTALLER_STORE_PASSWORD}"
 : "${INSTALLER_KEY_PASSWORD:?Set INSTALLER_KEY_PASSWORD}"
@@ -21,6 +21,16 @@ for argument in "$@"; do
             ;;
     esac
 done
+application_id=com.sukisu.ultra.selinuxtest
+app_label='SukiSU SELinux Installer Test'
+skip_daemon=true
+if [ "${INSTALLER_PROFILE:-}" = modified-release ]; then
+    profile=modified-release
+    export SUKISU_VERSION_NAME='v4.1.2 modified'
+    application_id=com.sukisu.ultra
+    app_label='SukiSU Ultra'
+    skip_daemon=false
+fi
 output="cache/$profile"
 export CARGO_TARGET_DIR="$PWD/cache/standalone-patch/ksud-target"
 mkdir -p "$output"
@@ -28,14 +38,17 @@ python3 scripts/installer/stage.py "$@" --manifest "$output/staged-resources.jso
 (cd userspace/ksud && cargo ndk -t arm64-v8a -P 26 build --release --locked)
 cp "$CARGO_TARGET_DIR/aarch64-linux-android/release/ksud" manager/app/src/main/jniLibs/arm64-v8a/libksud.so
 (cd manager && ./gradlew :app:assembleRelease \
-    -PSUKISU_APPLICATION_ID=com.sukisu.ultra.selinuxtest \
-    -PSUKISU_APP_LABEL='SukiSU SELinux Installer Test' \
-    -PSUKISU_SKIP_DAEMON_INSTALL=true -PSUKISU_INSTALLER_4K_ONLY=true -PSUKISU_ABIS=arm64-v8a \
+    -PSUKISU_APPLICATION_ID="$application_id" \
+    -PSUKISU_APP_LABEL="$app_label" \
+    -PSUKISU_SKIP_DAEMON_INSTALL="$skip_daemon" -PSUKISU_INSTALLER_4K_ONLY=true -PSUKISU_ABIS=arm64-v8a \
     -PSUKISU_VERSION_CODE="$SUKISU_VERSION_CODE" -PSUKISU_VERSION_NAME="$SUKISU_VERSION_NAME")
 tools="$ANDROID_HOME/build-tools/36.1.0"
 unsigned="manager/app/build/outputs/apk/release/SukiSU_${SUKISU_VERSION_NAME}_${SUKISU_VERSION_CODE}-release.apk"
 aligned="$output/installer-aligned.apk"
 final="$output/SukiSU_${SUKISU_VERSION_NAME}_${SUKISU_VERSION_CODE}-arm64-final.apk"
+if [ "$profile" = modified-release ]; then
+    final="$output/SukiSU_v4.1.2-modified_${SUKISU_VERSION_CODE}-arm64-release.apk"
+fi
 "$tools/zipalign" -f -P 16 4 "$unsigned" "$aligned"
 "$tools/apksigner" sign --ks "$INSTALLER_KEYSTORE" --ks-key-alias "$INSTALLER_KEY_ALIAS" \
     --ks-pass env:INSTALLER_STORE_PASSWORD --key-pass env:INSTALLER_KEY_PASSWORD \
@@ -43,6 +56,12 @@ final="$output/SukiSU_${SUKISU_VERSION_NAME}_${SUKISU_VERSION_CODE}-arm64-final.
     --out "$final" "$aligned"
 "$tools/apksigner" verify --verbose --print-certs "$final" > "$output/apk-signature.txt"
 cat "$output/apk-signature.txt"
-python3 scripts/installer/verify-apk.py "$final" --daemon "$CARGO_TARGET_DIR/aarch64-linux-android/release/ksud" \
-    --resources "$output/staged-resources.json" --signature "$output/apk-signature.txt"
+if [ "$profile" = modified-release ]; then
+    python3 scripts/installer/verify-apk.py "$final" --daemon "$CARGO_TARGET_DIR/aarch64-linux-android/release/ksud" \
+        --resources "$output/staged-resources.json" --signature "$output/apk-signature.txt" \
+        --pairing scripts/installer/release-v4.1.2.json --aapt2 "$tools/aapt2"
+else
+    python3 scripts/installer/verify-apk.py "$final" --daemon "$CARGO_TARGET_DIR/aarch64-linux-android/release/ksud" \
+        --resources "$output/staged-resources.json" --signature "$output/apk-signature.txt" --aapt2 "$tools/aapt2"
+fi
 echo "$final"
